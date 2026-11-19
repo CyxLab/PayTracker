@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/paytrack}
+    username: ${SPRING_DATASOURCE_USERNAME:paytrack}
+    password: ${SPRING_DATASOURCE_PASSWORD:paytrack}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    show-sql: true
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.springframework.security: DEBUG
+    com.paytrack: DEBUG

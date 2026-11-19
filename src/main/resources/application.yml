@@ -5,15 +5,19 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/paytrack}
-    username: ${SPRING_DATASOURCE_USERNAME:user}
-    password: ${SPRING_DATASOURCE_PASSWORD:password}
+    username: ${SPRING_DATASOURCE_USERNAME:paytrack}
+    password: ${SPRING_DATASOURCE_PASSWORD:paytrack}
   jpa:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
   flyway:
     enabled: true
     locations: classpath:db/migration
+    baseline-on-migrate: false
 
 management:
   endpoints:
@@ -23,3 +27,6 @@ management:
   endpoint:
     health:
       show-details: always
+
+server:
+  port: ${SERVER_PORT:8080}

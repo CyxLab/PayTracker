@@ -1,19 +1,17 @@
-version: '3.8'
-
 services:
-  db:
+  postgres:
     image: postgres:16-alpine
-    container_name: paytrack-db
+    container_name: paytrack-postgres
     environment:
       POSTGRES_DB: paytrack
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER: paytrack
+      POSTGRES_PASSWORD: paytrack
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d paytrack"]
+      test: ["CMD-SHELL", "pg_isready -U paytrack -d paytrack"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -39,16 +37,16 @@ services:
       dockerfile: Dockerfile
     container_name: paytrack-app
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/paytrack
-      SPRING_DATASOURCE_USERNAME: user
-      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/paytrack
+      SPRING_DATASOURCE_USERNAME: paytrack
+      SPRING_DATASOURCE_PASSWORD: paytrack
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_PROFILES_ACTIVE: docker
     ports:
       - "8080:8080"
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
