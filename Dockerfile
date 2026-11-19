@@ -1,32 +1,34 @@
-# --- Étape 1 : Build avec Maven ---
-FROM maven:3.9-eclipse-temurin-17 AS build
+# ===== Stage 1 : build =====
+FROM eclipse-temurin:17-jdk-jammy AS build
 WORKDIR /app
 
-# Copier le pom.xml et télécharger les dépendances (cache Docker)
+# 1. Copier en premier ce qui change rarement (cache Docker)
+COPY mvnw .
+COPY .mvn .mvn
 COPY pom.xml .
-RUN mvn dependency:go-offline -B
 
-# Copier le code source et builder le JAR
-COPY src ./src
-RUN mvn clean package -DskipTests
+# 2. Rendre le wrapper exécutable
+RUN chmod +x mvnw
 
-# --- Étape 2 : Runtime léger ---
-FROM eclipse-temurin:17-jre-alpine
+# 3. Télécharger les dépendances (couche cachée tant que pom.xml ne change pas)
+RUN ./mvnw -B dependency:go-offline -DskipTests
+
+# 4. Copier le code source et builder
+COPY src src
+RUN ./mvnw -B package -DskipTests
+
+# ===== Stage 2 : runtime =====
+FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 
-# Créer un utilisateur non-root pour la sécurité
-RUN addgroup -S spring && adduser -S spring -G spring
-USER spring:spring
+# Utilisateur non-root (securite, NFR-08)
+RUN groupadd -r paytrack && useradd -r -g paytrack paytrack
 
-# Copier le JAR depuis l'étape de build
 COPY --from=build /app/target/*.jar app.jar
+RUN chown paytrack:paytrack app.jar
+USER paytrack
 
-# Exposer le port par défaut de Spring Boot
 EXPOSE 8080
 
-# Healthcheck intégré (optionnel mais recommandé)
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD wget -qO- http://localhost:8080/actuator/health || exit 1
-
-# Lancer l'application
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# -Djava.security.egd evite les demarrages lents lies a SecureRandom sur Linux
+ENTRYPOINT ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]
