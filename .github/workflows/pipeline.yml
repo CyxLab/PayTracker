@@ -19,7 +19,6 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-
   # --------------------------------------------------
   # STEP 1 : UNIT & INTEGRATION TESTS
   # --------------------------------------------------
@@ -51,7 +50,6 @@ jobs:
           path: target/surefire-reports/
           if-no-files-found: ignore
 
-
   # --------------------------------------------------
   # STEP 2 : CODE QUALITY
   # --------------------------------------------------
@@ -80,7 +78,6 @@ jobs:
           name: checkstyle-report
           path: target/checkstyle-result.xml
           if-no-files-found: ignore
-
 
   # --------------------------------------------------
   # STEP 3 : SECURITY SCAN
@@ -131,7 +128,6 @@ jobs:
             echo "⚠️ Rapport non trouvé"
           fi
 
-
   # --------------------------------------------------
   # STEP 4 : PACKAGE + BUILD IMAGE
   # --------------------------------------------------
@@ -146,7 +142,6 @@ jobs:
       image-name: ${{ steps.image.outputs.image }}
 
     steps:
-
       - uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -185,7 +180,6 @@ jobs:
           docker push $IMAGE_NAME:${{ github.sha }}
           docker push $IMAGE_NAME:latest
 
-
   # --------------------------------------------------
   # STEP 5 : CANARY DEPLOYMENT
   # --------------------------------------------------
@@ -197,7 +191,6 @@ jobs:
       SPRING_PROFILES_ACTIVE: canary
 
     steps:
-
       - uses: actions/checkout@v4
 
       - name: Generate image name
@@ -219,7 +212,21 @@ jobs:
       - name: Start PostgreSQL
         run: |
           docker compose up -d postgres
-          sleep 20
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "Waiting for PostgreSQL to accept connections..."
+          for i in $(seq 1 30); do
+            if docker exec paytrack-postgres pg_isready -U user -d paytrack; then
+              echo "✅ PostgreSQL is ready!"
+              exit 0
+            fi
+            echo "PostgreSQL not ready yet (attempt $i/30)..."
+            sleep 2
+          done
+          echo "❌ PostgreSQL did not become ready in time"
+          docker logs paytrack-postgres
+          exit 1
 
       - name: Start Canary App
         run: |
@@ -239,21 +246,28 @@ jobs:
 
       - name: Health Check
         run: |
-          echo "Waiting for startup..."
-          sleep 30
-
-          curl --fail http://localhost:8081/actuator/health
+          echo "Waiting for application to be healthy..."
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:8081/actuator/health; then
+              echo "✅ Application is healthy!"
+              exit 0
+            fi
+            echo "Application not ready yet (attempt $i/20)..."
+            sleep 5
+          done
+          echo "❌ Health check failed after 20 attempts"
+          docker logs paytrack-canary
+          exit 1
 
       - name: Dump logs if failure
         if: failure()
-        run: docker logs paytrack-canary
+        run: docker logs paytrack-canary || true
 
       - name: Cleanup
         if: always()
         run: |
           docker rm -f paytrack-canary || true
           docker compose down || true
-
 
   # --------------------------------------------------
   # STEP 6 : PRODUCTION DEPLOYMENT
@@ -266,7 +280,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - uses: actions/checkout@v4
 
       - name: Stop stack
@@ -279,8 +292,18 @@ jobs:
 
       - name: Verify deployment
         run: |
-          sleep 30
-          curl --fail http://localhost:8080/actuator/health
+          echo "Waiting for application to be healthy..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/actuator/health; then
+              echo "✅ Production deployment successful!"
+              exit 0
+            fi
+            echo "Application not ready yet (attempt $i/30)..."
+            sleep 5
+          done
+          echo "❌ Production health check failed"
+          docker compose logs
+          exit 1
 
       - name: Show logs on failure
         if: failure()
