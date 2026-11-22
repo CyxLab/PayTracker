@@ -217,7 +217,7 @@ jobs:
         run: |
           echo "Waiting for PostgreSQL to accept connections..."
           for i in $(seq 1 30); do
-            if docker exec paytrack-postgres pg_isready -U user -d paytrack; then
+            if docker exec paytrack-postgres pg_isready -U paytrack -d paytrack; then
               echo "✅ PostgreSQL is ready!"
               exit 0
             fi
@@ -238,8 +238,8 @@ jobs:
             -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' \
             $(docker compose ps -q postgres)) \
             -e SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/paytrack \
-            -e SPRING_DATASOURCE_USERNAME=user \
-            -e SPRING_DATASOURCE_PASSWORD=password \
+            -e SPRING_DATASOURCE_USERNAME=paytrack \
+            -e SPRING_DATASOURCE_PASSWORD=paytrack \
             -e SPRING_PROFILES_ACTIVE=canary \
             -p 8081:8080 \
             $IMAGE_NAME:latest
