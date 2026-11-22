@@ -1,4 +1,4 @@
-name: PayTrack Full Intership Pipeline
+name: PayTrack Full Internship Pipeline
 
 on:
   push:
@@ -11,9 +11,6 @@ jobs:
   test_job:
     runs-on: ubuntu-latest
     steps:
-      - name: Fix dubious ownership
-        run: git config --global --add safe.directory ${{ github.workspace }}
-
       - name: Checkout du code
         uses: actions/checkout@v4
 
@@ -24,9 +21,22 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      # Testcontainers démarre sa propre base PostgreSQL : pas besoin de docker compose ici.
-      - name: Exécution des tests
-        run: ./mvnw test -Dspring.profiles.active=test
+      # Check that Docker is available for Testcontainers
+      - name: Check Docker Availability (Testcontainers)
+        run: docker info
+
+      # Testcontainers starts its own PostgreSQL database
+      - name: Run Tests
+        run: ./mvnw test -Dspring.profiles.active=test --no-transfer-progress
+
+      # Always upload the reports, even if they fail
+      - name: Upload rapports Surefire
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          if-no-files-found: ignore
 
   # --- STEP 2 : CODE QUALITY ---
   code_quality_job:
@@ -44,7 +54,7 @@ jobs:
           cache: 'maven'
 
       - name: Linting (Checkstyle)
-        run: ./mvnw checkstyle:check
+        run: ./mvnw checkstyle:check --no-transfer-progress
 
   # --- STEP 3 : SECURITY (SAST) ---
   sast_job:
@@ -61,11 +71,20 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
+      # NVD database cache for OWASP Dependency Check
+      - name: Cache OWASP NVD
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: owasp-nvd-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            owasp-nvd-${{ runner.os }}-
+
       - name: Security Scan (OWASP Dependency Check)
-        run: ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=7
+        run: ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=7 --no-transfer-progress
         continue-on-error: true
 
-      - name: Verify Security Compliance
+      - name: Verify Security Report Generated
         shell: bash
         run: |
           echo "Vérification des résultats OWASP..."
@@ -73,17 +92,24 @@ jobs:
             echo "Rapport OWASP généré avec succès"
           else
             echo "Rapport OWASP non trouvé"
+            echo "--- Contenu de target/ ---"
+            ls -la target/ || true
             exit 1
           fi
+
+      - name: Upload rapport OWASP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-report
+          path: target/dependency-check-report.html
+          if-no-files-found: ignore
 
   # --- STEP 4 : PACKAGING ---
   package_job:
     needs: [code_quality_job, sast_job]
     runs-on: ubuntu-latest
     steps:
-      - name: Fix dubious ownership
-        run: git config --global --add safe.directory ${{ github.workspace }}
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -95,7 +121,7 @@ jobs:
           cache: 'maven'
 
       - name: Build JAR with Maven
-        run: ./mvnw package -DskipTests
+        run: ./mvnw package -DskipTests --no-transfer-progress
 
       - name: Docker Build
         run: docker build -t paytrack_app:latest .
@@ -128,9 +154,18 @@ jobs:
           echo "Attente du démarrage des services (20s)..."
           sleep 20
 
-          # Lancement du conteneur Canary
+          # Récupération du réseau réel utilisé par le service db
+          # (compose peut créer son propre réseau, on s'y rattache pour résoudre "db")
+          DB_CONTAINER=$(docker compose ps -q db)
+          DB_NETWORK=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$DB_CONTAINER")
+          echo "Réseau utilisé par db : $DB_NETWORK"
+
+          # Connecte aussi ce réseau au réseau paytrack_net (au cas où)
+          docker network connect paytrack_net "$DB_CONTAINER" 2>/dev/null || true
+
+          # Lancement du conteneur Canary sur le réseau de la DB
           docker run -d --name paytrack-canary \
-            --network paytrack_net \
+            --network "$DB_NETWORK" \
             -e SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/paytrack \
             -e SPRING_DATASOURCE_USERNAME=user \
             -e SPRING_DATASOURCE_PASSWORD=password \
@@ -143,9 +178,9 @@ jobs:
           echo "Vérification de l'API sur le port 8081..."
           sleep 15
           if curl -sf http://localhost:8081/actuator/health; then
-            echo "L'API est stable !"
+            echo "✅ L'API est stable !"
           else
-            echo "--- ÉCHEC DU HEALTH CHECK : Logs de l'application ---"
+            echo "❌ ÉCHEC DU HEALTH CHECK : Logs de l'application ---"
             docker logs paytrack-canary
             exit 1
           fi
@@ -161,12 +196,18 @@ jobs:
             exit 1
           fi
 
+      - name: Dump canary logs on failure
+        if: failure()
+        shell: bash
+        run: docker logs paytrack-canary || true
+
       - name: Cleanup Canary
         if: always()
         shell: bash
         run: |
           echo "Nettoyage du test Canary..."
           if [ -n "$(docker ps -aq -f name=paytrack-canary)" ]; then docker rm -f paytrack-canary; fi
+          docker compose down || true
 
   # --- STEP 6 : DEPLOYMENT IN PRODUCTION ---
   deploy_prod_job:
@@ -191,8 +232,9 @@ jobs:
           echo "Waiting for services to be ready..."
           sleep 20
           if curl -sf http://localhost:8080/actuator/health; then
-            echo "Production deployment successful!"
+            echo "✅ Production deployment successful!"
           else
-            echo "Production deployment verification failed"
+            echo "❌ Production deployment verification failed"
+            docker compose logs || true
             exit 1
           fi
