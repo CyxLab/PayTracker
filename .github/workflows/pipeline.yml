@@ -5,6 +5,9 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+permissions:
+  contents: read
+  packages: write # Necessairy to push image on GHCR
 
 jobs:
   # --- STEP 1 : UNIT TESTS & INTEGRATION ---
@@ -128,8 +131,18 @@ jobs:
       - name: Build JAR with Maven
         run: ./mvnw package -DskipTests --no-transfer-progress
 
-      - name: Docker Build
-        run: docker build -t paytrack_app:latest .
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        run: |
+          IMAGE_NAME=ghcr.io/${{ github.repository }}/paytrack_app:latest
+          docker build -t $IMAGE_NAME .
+          docker push $IMAGE_NAME
 
   # --- STEP 5 : CANARY (SMOKE TEST) ---
   canary_job:
@@ -141,9 +154,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Start Canary Stack
         shell: bash
         run: |
+          IMAGE_NAME=ghcr.io/${{ github.repository }}/paytrack_app:latest
+
           canary=$(docker ps -aq -f name=paytrack-canary)
           if [ -n "$canary" ]; then docker rm -f paytrack-canary; fi
 
@@ -162,13 +184,14 @@ jobs:
 
           docker network connect paytrack_net "$DB_CONTAINER" 2>/dev/null || true
 
+          docker pull $IMAGE_NAME
           docker run -d --name paytrack-canary \
             --network "$DB_NETWORK" \
             -e SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/paytrack \
             -e SPRING_DATASOURCE_USERNAME=user \
             -e SPRING_DATASOURCE_PASSWORD=password \
             -e SPRING_PROFILES_ACTIVE=canary \
-            -p 8081:8080 paytrack_app:latest
+            -p 8081:8080 $IMAGE_NAME
 
       - name: Health Check
         shell: bash
