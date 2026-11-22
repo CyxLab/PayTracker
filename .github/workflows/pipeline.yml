@@ -2,17 +2,30 @@ name: PayTrack Full Internship Pipeline
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
+
   pull_request:
-    branches: [main, master]
+    branches:
+      - main
+      - master
+
 permissions:
   contents: read
-  packages: write # Necessairy to push image on GHCR
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
 
 jobs:
-  # --- STEP 1 : UNIT TESTS & INTEGRATION ---
+
+  # --------------------------------------------------
+  # STEP 1 : UNIT & INTEGRATION TESTS
+  # --------------------------------------------------
   test_job:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
@@ -21,10 +34,10 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: "17"
-          distribution: "temurin"
-          cache: "maven"
+          distribution: temurin
+          cache: maven
 
-      - name: Check Docker Availability (Testcontainers)
+      - name: Check Docker Availability
         run: docker info
 
       - name: Run Tests
@@ -38,20 +51,23 @@ jobs:
           path: target/surefire-reports/
           if-no-files-found: ignore
 
-  # --- STEP 2 : CODE QUALITY ---
+
+  # --------------------------------------------------
+  # STEP 2 : CODE QUALITY
+  # --------------------------------------------------
   code_quality_job:
     needs: test_job
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout du code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: "17"
-          distribution: "temurin"
-          cache: "maven"
+          distribution: temurin
+          cache: maven
 
       - name: Linting (Checkstyle)
         run: ./mvnw checkstyle:check --no-transfer-progress
@@ -65,32 +81,36 @@ jobs:
           path: target/checkstyle-result.xml
           if-no-files-found: ignore
 
-  # --- STEP 3 : SECURITY (SAST) ---
+
+  # --------------------------------------------------
+  # STEP 3 : SECURITY SCAN
+  # --------------------------------------------------
   sast_job:
     needs: test_job
     runs-on: ubuntu-latest
+
     env:
       NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+
     steps:
-      - name: Checkout du code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: "17"
-          distribution: "temurin"
-          cache: "maven"
+          distribution: temurin
+          cache: maven
 
       - name: Cache OWASP NVD
         uses: actions/cache@v4
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: owasp-nvd-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          key: owasp-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
-            owasp-nvd-${{ runner.os }}-
+            owasp-${{ runner.os }}-
 
-      - name: Security Scan (OWASP Dependency Check)
+      - name: Security Scan
         run: ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=7 --no-transfer-progress
         continue-on-error: true
 
@@ -102,34 +122,50 @@ jobs:
           path: target/dependency-check-report.html
           if-no-files-found: ignore
 
-      - name: Verify Security Report (non-blocking)
+      - name: Verify Security Report
         if: always()
-        shell: bash
         run: |
           if [ -f "target/dependency-check-report.html" ]; then
-            echo "✅ Rapport OWASP généré avec succès"
+            echo "✅ Rapport OWASP généré"
           else
-            echo "⚠️ Rapport OWASP non trouvé (le scan a peut-être échoué, mais ce n'est pas bloquant)"
-            ls -la target/ || true
+            echo "⚠️ Rapport non trouvé"
           fi
 
-  # --- STEP 4 : PACKAGING ---
+
+  # --------------------------------------------------
+  # STEP 4 : PACKAGE + BUILD IMAGE
+  # --------------------------------------------------
   package_job:
-    needs: [code_quality_job, sast_job]
+    needs:
+      - code_quality_job
+      - sast_job
+
     runs-on: ubuntu-latest
+
+    outputs:
+      image-name: ${{ steps.image.outputs.image }}
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: "17"
-          distribution: "temurin"
-          cache: "maven"
+          distribution: temurin
+          cache: maven
 
-      - name: Build JAR with Maven
-        run: ./mvnw package -DskipTests --no-transfer-progress
+      - name: Build JAR
+        run: ./mvnw clean package -DskipTests --no-transfer-progress
+
+      - name: Generate image name
+        id: image
+        run: |
+          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME=ghcr.io/$REPO/paytrack_app
+          echo "image=$IMAGE_NAME" >> $GITHUB_OUTPUT
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -138,124 +174,114 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push Docker Image
+      - name: Build Docker image
         run: |
-          IMAGE_NAME=ghcr.io/${{ github.repository }}/paytrack_app:latest
-          docker build -t $IMAGE_NAME .
-          docker push $IMAGE_NAME
+          docker build \
+            -t $IMAGE_NAME:${{ github.sha }} \
+            -t $IMAGE_NAME:latest .
 
-  # --- STEP 5 : CANARY (SMOKE TEST) ---
+      - name: Push Docker image
+        run: |
+          docker push $IMAGE_NAME:${{ github.sha }}
+          docker push $IMAGE_NAME:latest
+
+
+  # --------------------------------------------------
+  # STEP 5 : CANARY DEPLOYMENT
+  # --------------------------------------------------
   canary_job:
     needs: package_job
     runs-on: ubuntu-latest
+
     env:
       SPRING_PROFILES_ACTIVE: canary
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
 
-      - name: Log in to GHCR
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - name: Generate image name
+        run: |
+          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=ghcr.io/$REPO/paytrack_app" >> $GITHUB_ENV
+
+      - name: Login GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Start Canary Stack
-        shell: bash
+      - name: Pull image
         run: |
-          IMAGE_NAME=ghcr.io/${{ github.repository }}/paytrack_app:latest
+          docker pull $IMAGE_NAME:latest
 
-          canary=$(docker ps -aq -f name=paytrack-canary)
-          if [ -n "$canary" ]; then docker rm -f paytrack-canary; fi
-
-          if ! docker network ls --filter name=^paytrack_net$ -q | grep -q .; then
-            echo "Création du réseau paytrack_net..."
-            docker network create paytrack_net
-          fi
-
+      - name: Start PostgreSQL
+        run: |
           docker compose up -d postgres
-          echo "Attente du démarrage des services (20s)..."
           sleep 20
 
-          DB_CONTAINER=$(docker compose ps -q postgres)
-          DB_NETWORK=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$DB_CONTAINER")
-          echo "Réseau utilisé par postgres : $DB_NETWORK"
+      - name: Start Canary App
+        run: |
+          docker rm -f paytrack-canary || true
 
-          docker network connect paytrack_net "$DB_CONTAINER" 2>/dev/null || true
-
-          docker pull $IMAGE_NAME
-          docker run -d --name paytrack-canary \
-            --network "$DB_NETWORK" \
+          docker run -d \
+            --name paytrack-canary \
+            --network $(docker inspect \
+            -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' \
+            $(docker compose ps -q postgres)) \
             -e SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/paytrack \
             -e SPRING_DATASOURCE_USERNAME=user \
             -e SPRING_DATASOURCE_PASSWORD=password \
             -e SPRING_PROFILES_ACTIVE=canary \
-            -p 8081:8080 $IMAGE_NAME
+            -p 8081:8080 \
+            $IMAGE_NAME:latest
 
       - name: Health Check
-        shell: bash
         run: |
-          echo "Vérification de l'API sur le port 8081..."
-          sleep 15
-          if curl -sf http://localhost:8081/actuator/health; then
-            echo "✅ L'API est stable !"
-          else
-            echo "❌ ÉCHEC DU HEALTH CHECK : Logs de l'application ---"
-            docker logs paytrack-canary
-            exit 1
-          fi
+          echo "Waiting for startup..."
+          sleep 30
 
-      - name: Test API Endpoints
-        shell: bash
-        run: |
-          echo "Test des endpoints API..."
-          if curl -sf http://localhost:8081/actuator/health; then
-            echo "Health endpoint OK"
-          else
-            echo "API endpoint test failed"
-            exit 1
-          fi
+          curl --fail http://localhost:8081/actuator/health
 
-      - name: Dump canary logs on failure
+      - name: Dump logs if failure
         if: failure()
-        shell: bash
-        run: docker logs paytrack-canary || true
+        run: docker logs paytrack-canary
 
-      - name: Cleanup Canary
+      - name: Cleanup
         if: always()
-        shell: bash
         run: |
-          echo "Nettoyage du test Canary..."
-          if [ -n "$(docker ps -aq -f name=paytrack-canary)" ]; then docker rm -f paytrack-canary; fi
+          docker rm -f paytrack-canary || true
           docker compose down || true
 
-  # --- STEP 6 : DEPLOYMENT IN PRODUCTION ---
+
+  # --------------------------------------------------
+  # STEP 6 : PRODUCTION DEPLOYMENT
+  # --------------------------------------------------
   deploy_prod_job:
     needs: canary_job
-    runs-on: ubuntu-latest
+
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+
+    runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
 
-      - name: Stop existing containers
-        shell: bash
+      - uses: actions/checkout@v4
+
+      - name: Stop stack
         run: |
-          docker compose down || echo "No containers to stop"
+          docker compose down || true
 
-      - name: Deploy Full Stack
-        run: docker compose up -d --build
-
-      - name: Verify Production Deployment
-        shell: bash
+      - name: Deploy stack
         run: |
-          echo "Waiting for services to be ready..."
-          sleep 20
-          if curl -sf http://localhost:8080/actuator/health; then
-            echo "✅ Production deployment successful!"
-          else
-            echo "❌ Production deployment verification failed"
-            docker compose logs || true
-            exit 1
-          fi
+          docker compose up -d --build
+
+      - name: Verify deployment
+        run: |
+          sleep 30
+          curl --fail http://localhost:8080/actuator/health
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs
