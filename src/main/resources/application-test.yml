@@ -5,7 +5,6 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
-    clean-disabled: false   # autorisé en test uniquement
 
 logging:
   level:
