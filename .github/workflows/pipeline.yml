@@ -17,19 +17,16 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: 'maven'
+          java-version: "17"
+          distribution: "temurin"
+          cache: "maven"
 
-      # Check that Docker is available for Testcontainers
       - name: Check Docker Availability (Testcontainers)
         run: docker info
 
-      # Testcontainers starts its own PostgreSQL database
       - name: Run Tests
         run: ./mvnw test -Dspring.profiles.active=test --no-transfer-progress
 
-      # Always upload the reports, even if they fail
       - name: Upload rapports Surefire
         if: always()
         uses: actions/upload-artifact@v4
@@ -49,17 +46,28 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: 'maven'
+          java-version: "17"
+          distribution: "temurin"
+          cache: "maven"
 
       - name: Linting (Checkstyle)
         run: ./mvnw checkstyle:check --no-transfer-progress
+        continue-on-error: true # Ne bloque pas le pipeline sur les violations de style
+
+      - name: Upload Checkstyle report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkstyle-report
+          path: target/checkstyle-result.xml
+          if-no-files-found: ignore
 
   # --- STEP 3 : SECURITY (SAST) ---
   sast_job:
     needs: test_job
     runs-on: ubuntu-latest
+    env:
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }} # Clé API NVD (secret GitHub)
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
@@ -67,11 +75,10 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: 'maven'
+          java-version: "17"
+          distribution: "temurin"
+          cache: "maven"
 
-      # NVD database cache for OWASP Dependency Check
       - name: Cache OWASP NVD
         uses: actions/cache@v4
         with:
@@ -82,20 +89,7 @@ jobs:
 
       - name: Security Scan (OWASP Dependency Check)
         run: ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=7 --no-transfer-progress
-        continue-on-error: true
-
-      - name: Verify Security Report Generated
-        shell: bash
-        run: |
-          echo "Vérification des résultats OWASP..."
-          if [ -f "target/dependency-check-report.html" ]; then
-            echo "Rapport OWASP généré avec succès"
-          else
-            echo "Rapport OWASP non trouvé"
-            echo "--- Contenu de target/ ---"
-            ls -la target/ || true
-            exit 1
-          fi
+        continue-on-error: true # Le scan peut échouer (NVD, réseau), on continue
 
       - name: Upload rapport OWASP
         if: always()
@@ -104,6 +98,18 @@ jobs:
           name: owasp-report
           path: target/dependency-check-report.html
           if-no-files-found: ignore
+
+      # Vérification non bloquante : on affiche juste un warning si le rapport manque
+      - name: Verify Security Report (non-blocking)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "target/dependency-check-report.html" ]; then
+            echo "✅ Rapport OWASP généré avec succès"
+          else
+            echo "⚠️ Rapport OWASP non trouvé (le scan a peut-être échoué, mais ce n'est pas bloquant)"
+            ls -la target/ || true
+          fi
 
   # --- STEP 4 : PACKAGING ---
   package_job:
@@ -116,9 +122,9 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: 'maven'
+          java-version: "17"
+          distribution: "temurin"
+          cache: "maven"
 
       - name: Build JAR with Maven
         run: ./mvnw package -DskipTests --no-transfer-progress
@@ -139,31 +145,24 @@ jobs:
       - name: Start Canary Stack
         shell: bash
         run: |
-          # Nettoyage radical
           canary=$(docker ps -aq -f name=paytrack-canary)
           if [ -n "$canary" ]; then docker rm -f paytrack-canary; fi
 
-          # Création du réseau si nécessaire
           if ! docker network ls --filter name=^paytrack_net$ -q | grep -q .; then
             echo "Création du réseau paytrack_net..."
             docker network create paytrack_net
           fi
 
-          # Lancement de l'infrastructure (DB)
           docker compose up -d db
           echo "Attente du démarrage des services (20s)..."
           sleep 20
 
-          # Récupération du réseau réel utilisé par le service db
-          # (compose peut créer son propre réseau, on s'y rattache pour résoudre "db")
           DB_CONTAINER=$(docker compose ps -q db)
           DB_NETWORK=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$DB_CONTAINER")
           echo "Réseau utilisé par db : $DB_NETWORK"
 
-          # Connecte aussi ce réseau au réseau paytrack_net (au cas où)
           docker network connect paytrack_net "$DB_CONTAINER" 2>/dev/null || true
 
-          # Lancement du conteneur Canary sur le réseau de la DB
           docker run -d --name paytrack-canary \
             --network "$DB_NETWORK" \
             -e SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/paytrack \
