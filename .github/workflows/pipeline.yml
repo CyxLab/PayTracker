@@ -52,7 +52,7 @@ jobs:
 
       - name: Linting (Checkstyle)
         run: ./mvnw checkstyle:check --no-transfer-progress
-        continue-on-error: true # Ne bloque pas le pipeline sur les violations de style
+        continue-on-error: true
 
       - name: Upload Checkstyle report
         if: always()
@@ -67,7 +67,7 @@ jobs:
     needs: test_job
     runs-on: ubuntu-latest
     env:
-      NVD_API_KEY: ${{ secrets.NVD_API_KEY }} # Clé API NVD (secret GitHub)
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
@@ -89,7 +89,7 @@ jobs:
 
       - name: Security Scan (OWASP Dependency Check)
         run: ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=7 --no-transfer-progress
-        continue-on-error: true # Le scan peut échouer (NVD, réseau), on continue
+        continue-on-error: true
 
       - name: Upload rapport OWASP
         if: always()
@@ -99,7 +99,6 @@ jobs:
           path: target/dependency-check-report.html
           if-no-files-found: ignore
 
-      # Vérification non bloquante : on affiche juste un warning si le rapport manque
       - name: Verify Security Report (non-blocking)
         if: always()
         shell: bash
@@ -153,19 +152,19 @@ jobs:
             docker network create paytrack_net
           fi
 
-          docker compose up -d db
+          docker compose up -d postgres
           echo "Attente du démarrage des services (20s)..."
           sleep 20
 
-          DB_CONTAINER=$(docker compose ps -q db)
+          DB_CONTAINER=$(docker compose ps -q postgres)
           DB_NETWORK=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$DB_CONTAINER")
-          echo "Réseau utilisé par db : $DB_NETWORK"
+          echo "Réseau utilisé par postgres : $DB_NETWORK"
 
           docker network connect paytrack_net "$DB_CONTAINER" 2>/dev/null || true
 
           docker run -d --name paytrack-canary \
             --network "$DB_NETWORK" \
-            -e SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/paytrack \
+            -e SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/paytrack \
             -e SPRING_DATASOURCE_USERNAME=user \
             -e SPRING_DATASOURCE_PASSWORD=password \
             -e SPRING_PROFILES_ACTIVE=canary \
