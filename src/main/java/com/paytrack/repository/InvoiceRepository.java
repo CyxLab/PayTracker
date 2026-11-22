@@ -1,0 +1,10 @@
+package com.paytrack.repository;
+
+import com.paytrack.model.Invoice;
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.List;
+import java.util.UUID;
+
+public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
+    List<Invoice> findAllByTenantId(UUID tenantId);
+}
