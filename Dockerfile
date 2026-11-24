@@ -1,5 +1,5 @@
 # ===== Stage 1 : build =====
-FROM eclipse-temurin:17-jdk-jammy AS build
+FROM eclipse-temurin:25-jdk-jammy AS build
 WORKDIR /app
 
 # 1. Copier en premier ce qui change rarement (cache Docker)
@@ -18,7 +18,7 @@ COPY src src
 RUN ./mvnw -B package -DskipTests
 
 # ===== Stage 2 : runtime =====
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:25-jre-jammy
 WORKDIR /app
 
 # Utilisateur non-root (securite, NFR-08)
