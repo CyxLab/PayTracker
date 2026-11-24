@@ -19,12 +19,12 @@
 
 	<properties>
 		<java.version>25</java.version>
+		<!-- Remplacer source/target par maven.compiler.release -->
+		<maven.compiler.release>25</maven.compiler.release>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 		<jjwt.version>0.12.6</jjwt.version>
 		<testcontainers.version>1.21.4</testcontainers.version>
-		<!-- Ajout de la version de Lombok pour s'assurer de la compatibilité
-		avec Java 25 -->
 		<lombok.version>1.18.42</lombok.version>
 	</properties>
 
@@ -154,9 +154,6 @@
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
 				<configuration>
-					<!-- Force la compilation en Java 25 -->
-					<source>25</source>
-					<target>25</target>
 					<annotationProcessorPaths>
 						<path>
 							<groupId>org.projectlombok</groupId>
@@ -165,7 +162,7 @@
 						</path>
 					</annotationProcessorPaths>
 				</configuration>
-			</plugin>
+			</plugin>			
 		</plugins>
 	</build>
 </project>
