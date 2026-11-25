@@ -35,3 +35,10 @@ paytrack:
   jwt:
     secret: ${JWT_SECRET:change-me-in-local-dev-min-32-chars-please}
     expiration-ms: 3600000
+
+logging:
+  level:
+    org.springframework.web: DEBUG
+    org.springframework.validation: DEBUG
+    org.springframework.web.servlet.mvc.method.annotation: TRACE
+    com.paytrack: DEBUG

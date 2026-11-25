@@ -35,8 +35,7 @@ public class SecurityConfig {
                 .cors(cors -> {})
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // ⬇️ Ajout de "/error" ici
-                        .requestMatchers("/api/v1/auth/login", "/actuator/health", "/error").permitAll()
+                		.requestMatchers("/api/v1/auth/login", "/api/test/**", "/actuator/health", "/error").permitAll() 
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
