@@ -29,15 +29,19 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: "25"
           distribution: temurin
           cache: maven
 
       - name: Check Docker Availability
         run: docker info
+
+      # Optionnel : Pré-télécharger l'image PostgreSQL pour Testcontainers
+      - name: Pre-pull PostgreSQL image
+        run: docker pull postgres:15-alpine
 
       - name: Run Tests
         run: ./mvnw test -Dspring.profiles.active=test --no-transfer-progress
@@ -60,10 +64,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: "25"
           distribution: temurin
           cache: maven
 
@@ -92,10 +96,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: "25"
           distribution: temurin
           cache: maven
 
@@ -144,10 +148,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: "25"
           distribution: temurin
           cache: maven
 

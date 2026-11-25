@@ -23,6 +23,7 @@ CREATE INDEX idx_app_user_tenant ON app_user(tenant_id);
 CREATE TABLE invoice (
     id          BIGSERIAL PRIMARY KEY,
     tenant_id   UUID NOT NULL REFERENCES tenant(id),
+    invoice_number INTEGER,
     customer    VARCHAR(255) NOT NULL,
     amount      NUMERIC(15,2) NOT NULL,
     status      VARCHAR(20) NOT NULL,

@@ -13,6 +13,9 @@ public class Invoice {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "invoice_number", nullable = false)
+    private Integer invoiceNumber;
+    
     @Column(name = "tenant_id", nullable = false, columnDefinition = "uuid")
     private UUID tenantId;
 
@@ -44,4 +47,7 @@ public class Invoice {
     public void setStatus(String status) { this.status = status; }
 
     public OffsetDateTime getCreatedAt() { return createdAt; }
+
+    public Integer getInvoiceNumber() { return invoiceNumber; }
+    public void setInvoiceNumber(Integer invoiceNumber) { this.invoiceNumber = invoiceNumber; }
 }
